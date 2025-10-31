@@ -28,6 +28,7 @@ let model;
 let detectionInProgress = false;
 let voiceEnabled = true;
 let lastDetectionTime = 0;
+let hasStarted = false;
 
 const detectedObjects = new Map();
 
@@ -406,6 +407,17 @@ async function init() {
         const overlay = document.getElementById('loading-overlay');
         if (overlay) {
             overlay.classList.add('hidden');
+        }
+        const welcome = document.getElementById('welcome-screen');
+        if (welcome) {
+            welcome.classList.remove('hidden');
+        }
+        document.body.classList.remove('experience-active');
+        hasStarted = false;
+        const startBtn = document.getElementById('start-btn');
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.textContent = 'Enter Experience';
         }
     }
 }
@@ -905,10 +917,46 @@ function formatLabelName(name) {
         .replace(/\w\S*/g, txt => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
 }
 
-// Start app when DOM is ready
+function setupWelcome() {
+    updateStatus('Awaiting launch...');
+    const startBtn = document.getElementById('start-btn');
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+    }
+
+    if (!startBtn) {
+        return;
+    }
+
+    startBtn.addEventListener('click', () => {
+        if (hasStarted) {
+            return;
+        }
+
+        hasStarted = true;
+        startBtn.disabled = true;
+        startBtn.textContent = 'Initializing...';
+
+        document.body.classList.add('experience-active');
+        const welcome = document.getElementById('welcome-screen');
+        if (welcome) {
+            welcome.classList.add('hidden');
+        }
+
+        if (overlay) {
+            overlay.classList.remove('hidden');
+        }
+
+        updateStatus('Booting sensors...');
+        init();
+    });
+}
+
+// Initialize welcome flow when DOM is ready
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', setupWelcome);
 } else {
-    init();
+    setupWelcome();
 }
 

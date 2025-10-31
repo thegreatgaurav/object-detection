@@ -7,6 +7,27 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- Welcome screen -->
+    <div id="welcome-screen">
+        <div class="welcome-glow"></div>
+        <div class="welcome-content">
+            <span class="badge">Immersive Web AR</span>
+            <h1 class="title">Neon AR Object Explorer</h1>
+            <p class="subtitle">
+                Step into a browser-based mixed reality lab. Scan your surroundings,
+                let the AI identify what it sees, and watch neon fact cards hover in space.
+            </p>
+            <div class="cta-row">
+                <button id="start-btn" class="primary-btn">Enter Experience</button>
+                <div class="secondary-copy">No installs required · Camera + audio access needed</div>
+            </div>
+        </div>
+        <div class="welcome-footer">
+            <span class="dot"></span>
+            <span>Powered by Three.js · AR.js · TensorFlow.js</span>
+        </div>
+    </div>
+    
     <!-- Video element for camera feed (managed by AR.js) -->
     <video id="video" autoplay playsinline muted></video>
     
@@ -17,7 +38,7 @@
     <div id="ui-overlay">
         <div id="header">
             <h1>Neon AR Object Explorer</h1>
-            <div id="status">Initializing...</div>
+            <div id="status">Awaiting launch...</div>
         </div>
         
         <div id="controls">
@@ -29,7 +50,7 @@
     </div>
     
     <!-- Loading overlay -->
-    <div id="loading-overlay">
+    <div id="loading-overlay" class="hidden">
         <div class="spinner"></div>
         <p>Loading AI Model...</p>
     </div>
