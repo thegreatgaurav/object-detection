@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Object Visualizer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Video element for camera feed -->
+    <video id="video" autoplay playsinline muted></video>
+    
+    <!-- Canvas for Three.js AR rendering -->
+    <canvas id="canvas"></canvas>
+    
+    <!-- UI Overlay -->
+    <div id="ui-overlay">
+        <div id="header">
+            <h1>AR Object Visualizer</h1>
+            <div id="status">Initializing...</div>
+        </div>
+        
+        <div id="controls">
+            <button id="voice-toggle" class="control-btn">
+                <span class="icon">🔊</span>
+                <span class="label">Voice: ON</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Loading overlay -->
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <p>Loading AI Model...</p>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
+
