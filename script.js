@@ -1,21 +1,40 @@
 // ============================================
-// AR Object Visualizer - Main Application
+// Neon AR Object Explorer - Main Application
 // ============================================
+
+const SETTINGS = Object.freeze({
+    detectionThrottle: 300,
+    detectionScale: 0.5,
+    minConfidence: 0.5,
+    disappearTimeout: 850,
+    labelDistance: 3,
+    labelLerp: 0.25,
+    maxBoxes: 20
+});
+
+const SPEECH_COOLDOWN = 15000;
 
 // Global variables
 let video;
 let canvas;
-let ctx;
-let detectionCanvas; // Separate canvas for detection
-let detectionCtx;
 let scene;
 let camera;
 let renderer;
+let arToolkitSource;
+let arToolkitContext;
+let detectionCanvas;
+let detectionCtx;
 let model;
-let detectedObjects = new Map(); // Track detected objects by class name
+let detectionInProgress = false;
 let voiceEnabled = true;
 let lastDetectionTime = 0;
-const DETECTION_THROTTLE = 300; // ms between detections
+let hasStarted = false;
+
+const detectedObjects = new Map();
+
+// Speech synthesis state
+const speechQueue = [];
+let isSpeaking = false;
 
 // Object database with fun facts
 const OBJECT_DATABASE = {
@@ -350,395 +369,607 @@ const DEFAULT_OBJECT = {
 // Initialize application
 async function init() {
     try {
-        // Get DOM elements
         video = document.getElementById('video');
         canvas = document.getElementById('canvas');
-        ctx = canvas.getContext('2d');
-        
-        // Create separate canvas for detection (offscreen, not in DOM)
+
+        if (!video || !canvas) {
+            throw new Error('Required DOM elements are missing.');
+        }
+
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('muted', 'true');
+        video.muted = true;
+        video.autoplay = true;
+
+        // Prepare offscreen canvas for TensorFlow inference
         detectionCanvas = document.createElement('canvas');
         detectionCtx = detectionCanvas.getContext('2d');
-        
-        // Set canvas size
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
-        
-        // Initialize camera
-        await initCamera();
-        
-        // Initialize Three.js scene
+
         initThreeJS();
-        
-        // Load AI model
-        updateStatus('Loading AI Model...');
-        model = await cocoSsd.load();
-        updateStatus('Ready');
-        document.getElementById('loading-overlay').classList.add('hidden');
-        
-        // Start detection loop
-        startDetectionLoop();
-        
-        // Setup UI controls
+
+        updateStatus('Requesting camera access...');
+        await initAR();
+
+        updateStatus('Loading AI model...');
+        model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+
         setupControls();
-        
+
+        updateStatus('Calibrating sensors...');
+        document.getElementById('loading-overlay').classList.add('hidden');
+        updateStatus('Ready');
+
+        startDetectionLoop();
+
     } catch (error) {
         console.error('Initialization error:', error);
         updateStatus('Error: ' + error.message, true);
-        document.getElementById('loading-overlay').classList.add('hidden');
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.classList.add('hidden');
+        }
+        const welcome = document.getElementById('welcome-screen');
+        if (welcome) {
+            welcome.classList.remove('hidden');
+        }
+        document.body.classList.remove('experience-active');
+        hasStarted = false;
+        const startBtn = document.getElementById('start-btn');
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.textContent = 'Enter Experience';
+        }
     }
 }
 
-// Initialize camera
-async function initCamera() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: 'environment', // Use back camera on mobile
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            }
-        });
-        video.srcObject = stream;
-        await video.play();
-    } catch (error) {
-        throw new Error('Camera access denied or unavailable. Please allow camera permissions.');
-    }
-}
-
-// Resize canvas to match video
-function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    
-    if (renderer) {
-        renderer.setSize(canvas.width, canvas.height);
-        camera.aspect = canvas.width / canvas.height;
-        camera.updateProjectionMatrix();
-    }
-}
-
-// Initialize Three.js scene
+// Initialize Three.js scene & renderer
 function initThreeJS() {
-    // Scene
     scene = new THREE.Scene();
-    
-    // Camera (orthographic for 2D overlay effect)
-    camera = new THREE.PerspectiveCamera(
-        75,
-        canvas.width / canvas.height,
-        0.1,
-        1000
-    );
-    camera.position.set(0, 0, 5);
-    
-    // Renderer
+
+    camera = new THREE.Camera();
+    camera.matrixAutoUpdate = false;
+    scene.add(camera);
+
     renderer = new THREE.WebGLRenderer({
-        canvas: canvas,
+        canvas,
         alpha: true,
         antialias: true
     });
-    renderer.setSize(canvas.width, canvas.height);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    
-    // Start render loop
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    if (renderer.outputColorSpace) {
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+    }
+
+    window.addEventListener('resize', handleResize);
+
     animate();
 }
 
-// Create 3D label for detected object
-function createLabel(objectData, confidence) {
-    const canvas2d = document.createElement('canvas');
-    const ctx2d = canvas2d.getContext('2d');
-    canvas2d.width = 512;
-    canvas2d.height = 256;
-    
-    // Draw label background
-    ctx2d.fillStyle = 'rgba(0, 0, 0, 0.8)';
-    ctx2d.fillRect(0, 0, canvas2d.width, canvas2d.height);
-    
-    // Draw border
-    ctx2d.strokeStyle = '#00ff41';
-    ctx2d.lineWidth = 4;
-    ctx2d.strokeRect(2, 2, canvas2d.width - 4, canvas2d.height - 4);
-    
-    // Draw text
-    ctx2d.fillStyle = '#00ff41';
-    ctx2d.font = 'bold 32px "Courier New", monospace';
-    ctx2d.textAlign = 'center';
-    ctx2d.textBaseline = 'middle';
-    
-    // Object name
-    ctx2d.fillText(objectData.name, canvas2d.width / 2, 70);
-    
-    // Confidence
-    ctx2d.font = '20px "Courier New", monospace';
-    ctx2d.fillStyle = '#00ff88';
-    ctx2d.fillText(`${Math.round(confidence * 100)}% confident`, canvas2d.width / 2, 110);
-    
-    // Info text (split if too long)
-    ctx2d.font = '18px "Courier New", monospace';
-    ctx2d.fillStyle = '#ffffff';
-    const words = objectData.info.split(' ');
-    const lines = [];
-    let currentLine = '';
-    
-    words.forEach(word => {
-        const testLine = currentLine + word + ' ';
-        const metrics = ctx2d.measureText(testLine);
-        if (metrics.width > canvas2d.width - 40 && currentLine !== '') {
-            lines.push(currentLine);
-            currentLine = word + ' ';
+// Initialize AR.js source & context
+async function initAR() {
+    if (typeof THREEx === 'undefined' || !THREEx.ArToolkitSource || !THREEx.ArToolkitContext) {
+        throw new Error('AR.js failed to load.');
+    }
+
+    THREEx.ArToolkitContext.baseURL = 'https://cdn.jsdelivr.net/npm/ar.js@3.4.2/three.js/';
+
+    arToolkitSource = new THREEx.ArToolkitSource({
+        sourceType: 'webcam',
+        facingMode: { ideal: 'environment' },
+        sourceWidth: 1280,
+        sourceHeight: 720,
+        displayWidth: window.innerWidth,
+        displayHeight: window.innerHeight,
+        sourceElement: video
+    });
+
+    await new Promise((resolve, reject) => {
+        arToolkitSource.init(
+            () => {
+                handleResize();
+                resolve();
+            },
+            () => reject(new Error('Camera access denied or unavailable. Please allow camera permissions.'))
+        );
+    });
+
+    try {
+        await video.play();
+    } catch (error) {
+        console.warn('Autoplay prevented, waiting for user interaction.', error);
+    }
+
+    arToolkitContext = new THREEx.ArToolkitContext({
+        cameraParametersUrl: 'https://cdn.jsdelivr.net/npm/ar.js@3.4.2/data/data/camera_para.dat',
+        detectionMode: 'mono',
+        maxDetectionRate: 30,
+        canvasWidth: 1280,
+        canvasHeight: 720
+    });
+
+    await new Promise(resolve => {
+        arToolkitContext.init(() => {
+            camera.projectionMatrix.copy(arToolkitContext.getProjectionMatrix());
+            resolve();
+        });
+    });
+}
+
+// Handle window & video resize events
+function handleResize() {
+    if (!renderer) {
+        return;
+    }
+
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    renderer.setSize(width, height);
+
+    if (arToolkitSource) {
+        arToolkitSource.onResizeElement();
+        arToolkitSource.copyElementSizeTo(renderer.domElement);
+        if (arToolkitContext && arToolkitContext.arController) {
+            arToolkitSource.copyElementSizeTo(arToolkitContext.arController.canvas);
+        }
+        if (video) {
+            arToolkitSource.copyElementSizeTo(video);
+        }
+    }
+
+    if (video) {
+        video.style.width = `${width}px`;
+        video.style.height = `${height}px`;
+    }
+}
+
+// Begin detection loop
+function startDetectionLoop() {
+    requestAnimationFrame(detectionLoop);
+}
+
+async function detectionLoop() {
+    requestAnimationFrame(detectionLoop);
+
+    const frameSource = arToolkitSource && arToolkitSource.domElement ? arToolkitSource.domElement : video;
+
+    if (!model || !frameSource || frameSource.readyState < 2) {
+        return;
+    }
+
+    const now = performance.now();
+    if (detectionInProgress || now - lastDetectionTime < SETTINGS.detectionThrottle) {
+        return;
+    }
+
+    const sourceWidth = frameSource.videoWidth || video.videoWidth;
+    const sourceHeight = frameSource.videoHeight || video.videoHeight;
+
+    if (!sourceWidth || !sourceHeight) {
+        return;
+    }
+
+    const scale = SETTINGS.detectionScale;
+    const detectionWidth = Math.floor(sourceWidth * scale);
+    const detectionHeight = Math.floor(sourceHeight * scale);
+
+    if (!detectionWidth || !detectionHeight) {
+        return;
+    }
+
+    detectionInProgress = true;
+    lastDetectionTime = now;
+
+    try {
+        detectionCanvas.width = detectionWidth;
+        detectionCanvas.height = detectionHeight;
+        detectionCtx.drawImage(frameSource, 0, 0, detectionWidth, detectionHeight);
+        const imageData = detectionCtx.getImageData(0, 0, detectionWidth, detectionHeight);
+        const predictions = await model.detect(
+            imageData,
+            SETTINGS.maxBoxes,
+            SETTINGS.minConfidence
+        );
+        processPredictions(predictions, scale, sourceWidth, sourceHeight);
+    } catch (error) {
+        console.error('Detection error:', error);
+    } finally {
+        detectionInProgress = false;
+    }
+}
+
+function processPredictions(predictions, scale, sourceWidth, sourceHeight) {
+    const now = performance.now();
+
+    for (const entry of detectedObjects.values()) {
+        entry.matched = false;
+    }
+
+    predictions.forEach(prediction => {
+        if (prediction.score < SETTINGS.minConfidence) {
+            return;
+        }
+
+        const bbox = {
+            x: prediction.bbox[0] / scale,
+            y: prediction.bbox[1] / scale,
+            width: prediction.bbox[2] / scale,
+            height: prediction.bbox[3] / scale
+        };
+
+        const centerX = bbox.x + bbox.width / 2;
+        const labelY = Math.max(bbox.y - 60, 0);
+        const worldPos = screenToWorld(centerX, labelY, sourceWidth, sourceHeight);
+
+        const matchId = findMatchingDetection(prediction.class, bbox);
+        if (matchId) {
+            const entry = detectedObjects.get(matchId);
+            entry.matched = true;
+            entry.lastSeen = now;
+            entry.bbox = bbox;
+            entry.sprite.position.lerp(worldPos, SETTINGS.labelLerp);
+
+            if (Math.abs(entry.lastConfidence - prediction.score) > 0.05) {
+                updateLabelTexture(entry.sprite, entry.data, prediction.score);
+                entry.lastConfidence = prediction.score;
+            }
+
+            if (voiceEnabled && now - (entry.lastSpoken || 0) > SPEECH_COOLDOWN) {
+                queueSpeech(entry.data.name, entry.data.info);
+                entry.lastSpoken = now;
+            }
+
         } else {
-            currentLine = testLine;
+            const objectData = OBJECT_DATABASE[prediction.class] || {
+                name: formatLabelName(prediction.class),
+                info: DEFAULT_OBJECT.info
+            };
+
+            const sprite = createLabel(objectData, prediction.score);
+            sprite.position.copy(worldPos);
+            scene.add(sprite);
+
+            const id = createDetectionId();
+            detectedObjects.set(id, {
+                id,
+                className: prediction.class,
+                sprite,
+                data: objectData,
+                bbox,
+                lastSeen: now,
+                lastConfidence: prediction.score,
+                matched: true,
+                lastSpoken: voiceEnabled ? now : 0
+            });
+
+            if (voiceEnabled) {
+                queueSpeech(objectData.name, objectData.info);
+            }
         }
     });
-    if (currentLine) lines.push(currentLine);
-    
-    lines.slice(0, 3).forEach((line, index) => {
-        ctx2d.fillText(line.trim(), canvas2d.width / 2, 150 + index * 30);
-    });
-    
-    // Create texture
-    const texture = new THREE.CanvasTexture(canvas2d);
-    texture.needsUpdate = true;
-    
-    // Create sprite material
+
+    for (const [id, entry] of detectedObjects.entries()) {
+        if (!entry.matched) {
+            if (now - entry.lastSeen > SETTINGS.disappearTimeout) {
+                removeLabel(entry.sprite);
+                detectedObjects.delete(id);
+            }
+        } else {
+            entry.matched = false;
+        }
+    }
+}
+
+function findMatchingDetection(className, bbox) {
+    let bestId = null;
+    let bestIou = 0;
+
+    for (const [id, entry] of detectedObjects.entries()) {
+        if (entry.className !== className || !entry.bbox) {
+            continue;
+        }
+
+        const iou = computeIoU(entry.bbox, bbox);
+        if (iou > 0.2 && iou > bestIou) {
+            bestIou = iou;
+            bestId = id;
+        }
+    }
+
+    return bestId;
+}
+
+function computeIoU(a, b) {
+    const xA = Math.max(a.x, b.x);
+    const yA = Math.max(a.y, b.y);
+    const xB = Math.min(a.x + a.width, b.x + b.width);
+    const yB = Math.min(a.y + a.height, b.y + b.height);
+
+    const interWidth = Math.max(0, xB - xA);
+    const interHeight = Math.max(0, yB - yA);
+    const interArea = interWidth * interHeight;
+
+    if (interArea <= 0) {
+        return 0;
+    }
+
+    const areaA = a.width * a.height;
+    const areaB = b.width * b.height;
+    return interArea / (areaA + areaB - interArea);
+}
+
+function screenToWorld(x, y, videoWidth, videoHeight) {
+    if (!camera) {
+        return new THREE.Vector3();
+    }
+
+    const ndcX = (x / videoWidth) * 2 - 1;
+    const ndcY = -(y / videoHeight) * 2 + 1;
+
+    const vector = new THREE.Vector3(ndcX, ndcY, 0.5);
+    vector.unproject(camera);
+
+    const direction = vector.sub(camera.position).normalize();
+    const distance = SETTINGS.labelDistance;
+    return camera.position.clone().add(direction.multiplyScalar(distance));
+}
+
+function createLabel(objectData, confidence) {
+    const labelCanvas = document.createElement('canvas');
+    labelCanvas.width = 512;
+    labelCanvas.height = 256;
+    const labelCtx = labelCanvas.getContext('2d');
+
+    drawLabelTexture(labelCtx, labelCanvas, objectData, confidence);
+
+    const texture = new THREE.CanvasTexture(labelCanvas);
     const material = new THREE.SpriteMaterial({
         map: texture,
         transparent: true,
         opacity: 0
     });
-    
-    // Create sprite
+
     const sprite = new THREE.Sprite(material);
-    sprite.scale.set(2, 1, 1);
-    
-    // Fade in animation
+    sprite.scale.set(2.4, 1.2, 1);
+    sprite.userData.canvas = labelCanvas;
+    sprite.userData.context = labelCtx;
+
     animateOpacity(sprite, 0, 1, 500);
-    
     return sprite;
 }
 
-// Animate opacity
+function drawLabelTexture(ctx2d, canvas2d, objectData, confidence) {
+    ctx2d.clearRect(0, 0, canvas2d.width, canvas2d.height);
+
+    ctx2d.fillStyle = 'rgba(0, 0, 0, 0.82)';
+    ctx2d.fillRect(0, 0, canvas2d.width, canvas2d.height);
+
+    ctx2d.strokeStyle = '#00ff41';
+    ctx2d.lineWidth = 4;
+    ctx2d.strokeRect(2, 2, canvas2d.width - 4, canvas2d.height - 4);
+
+    ctx2d.fillStyle = '#00ff41';
+    ctx2d.font = 'bold 36px "Courier New", monospace';
+    ctx2d.textAlign = 'center';
+    ctx2d.fillText(objectData.name, canvas2d.width / 2, 72);
+
+    ctx2d.fillStyle = '#00ff88';
+    ctx2d.font = '22px "Courier New", monospace';
+    ctx2d.fillText(`${Math.round(confidence * 100)}% confidence`, canvas2d.width / 2, 120);
+
+    ctx2d.fillStyle = '#ffffff';
+    ctx2d.font = '20px "Courier New", monospace';
+    wrapText(ctx2d, objectData.info, canvas2d.width / 2, 168, canvas2d.width - 60, 28);
+}
+
+function wrapText(ctx2d, text, centerX, startY, maxWidth, lineHeight) {
+    const words = text.split(' ');
+    let line = '';
+    const lines = [];
+
+    words.forEach(word => {
+        const testLine = `${line}${word} `;
+        if (ctx2d.measureText(testLine).width > maxWidth && line !== '') {
+            lines.push(line.trim());
+            line = `${word} `;
+        } else {
+            line = testLine;
+        }
+    });
+
+    if (line) {
+        lines.push(line.trim());
+    }
+
+    lines.slice(0, 3).forEach((segment, index) => {
+        ctx2d.fillText(segment, centerX, startY + index * lineHeight);
+    });
+}
+
+function updateLabelTexture(sprite, objectData, confidence) {
+    const ctx2d = sprite.userData.context;
+    const canvas2d = sprite.userData.canvas;
+    if (!ctx2d || !canvas2d) {
+        return;
+    }
+
+    drawLabelTexture(ctx2d, canvas2d, objectData, confidence);
+    sprite.material.map.needsUpdate = true;
+}
+
 function animateOpacity(sprite, from, to, duration) {
-    const startTime = Date.now();
-    const startOpacity = sprite.material.opacity;
-    
+    const startTime = performance.now();
+    const startingOpacity = from;
+    sprite.material.opacity = startingOpacity;
+
     function update() {
-        const elapsed = Date.now() - startTime;
+        const elapsed = performance.now() - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        const easeProgress = 1 - Math.pow(1 - progress, 3); // Ease out cubic
-        sprite.material.opacity = startOpacity + (to - startOpacity) * easeProgress;
-        
+        const eased = 1 - Math.pow(1 - progress, 3);
+        sprite.material.opacity = startingOpacity + (to - startingOpacity) * eased;
+
         if (progress < 1) {
             requestAnimationFrame(update);
         }
     }
-    
-    update();
+
+    requestAnimationFrame(update);
 }
 
-// Remove label with fade out
 function removeLabel(sprite) {
-    animateOpacity(sprite, sprite.material.opacity, 0, 300);
+    if (!sprite) {
+        return;
+    }
+
+    const currentOpacity = sprite.material.opacity;
+    animateOpacity(sprite, currentOpacity, 0, 250);
     setTimeout(() => {
         scene.remove(sprite);
+        if (sprite.material.map) {
+            sprite.material.map.dispose();
+        }
         sprite.material.dispose();
-        sprite.material.map.dispose();
-    }, 300);
+    }, 260);
 }
 
-// Convert 2D screen coordinates to 3D world coordinates
-function screenToWorld(x, y, width, height, videoWidth, videoHeight) {
-    // Normalize coordinates
-    const normalizedX = (x / videoWidth) * 2 - 1;
-    const normalizedY = 1 - (y / videoHeight) * 2; // Flip Y axis
-    
-    // Scale to canvas dimensions
-    const aspect = canvas.width / canvas.height;
-    const videoAspect = videoWidth / videoHeight;
-    
-    let scaleX = 1;
-    let scaleY = 1;
-    
-    if (videoAspect > aspect) {
-        scaleY = videoAspect / aspect;
-    } else {
-        scaleX = aspect / videoAspect;
+function queueSpeech(name, info) {
+    if (!('speechSynthesis' in window)) {
+        return;
     }
-    
-    const worldX = normalizedX * scaleX * 5;
-    const worldY = normalizedY * scaleY * 5;
-    
-    return new THREE.Vector3(worldX, worldY, 0);
-}
 
-// Object detection loop
-async function startDetectionLoop() {
-    async function detect() {
-        if (!video.videoWidth || !video.videoHeight) {
-            requestAnimationFrame(detect);
-            return;
-        }
-        
-        const now = Date.now();
-        if (now - lastDetectionTime < DETECTION_THROTTLE) {
-            requestAnimationFrame(detect);
-            return;
-        }
-        lastDetectionTime = now;
-        
-        try {
-            // Resize frame for better performance
-            const scale = 0.5;
-            const detectionWidth = Math.floor(video.videoWidth * scale);
-            const detectionHeight = Math.floor(video.videoHeight * scale);
-            
-            // Set detection canvas size and draw video frame
-            detectionCanvas.width = detectionWidth;
-            detectionCanvas.height = detectionHeight;
-            detectionCtx.drawImage(video, 0, 0, detectionWidth, detectionHeight);
-            const imageData = detectionCtx.getImageData(0, 0, detectionWidth, detectionHeight);
-            
-            // Run detection
-            const predictions = await model.detect(imageData);
-            
-            // Update detected objects
-            const currentObjects = new Set();
-            
-            predictions.forEach(prediction => {
-                const className = prediction.class;
-                currentObjects.add(className);
-                
-                // Get object data
-                const objectData = OBJECT_DATABASE[className] || {
-                    name: className.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-                    info: DEFAULT_OBJECT.info
-                };
-                
-                // Calculate label position (center-top of bounding box)
-                const centerX = (prediction.bbox[0] + prediction.bbox[2] / 2) / scale;
-                const centerY = prediction.bbox[1] / scale;
-                
-                // Convert to world coordinates
-                const worldPos = screenToWorld(
-                    centerX,
-                    centerY - 30, // Offset above object
-                    video.videoWidth,
-                    video.videoHeight,
-                    video.videoWidth,
-                    video.videoHeight
-                );
-                
-                // Update or create label
-                if (detectedObjects.has(className)) {
-                    const sprite = detectedObjects.get(className).sprite;
-                    sprite.position.copy(worldPos);
-                } else {
-                    const sprite = createLabel(objectData, prediction.score);
-                    sprite.position.copy(worldPos);
-                    scene.add(sprite);
-                    detectedObjects.set(className, {
-                        sprite: sprite,
-                        data: objectData,
-                        confidence: prediction.score
-                    });
-                    
-                    // Speak object name and info
-                    if (voiceEnabled) {
-                        speakObject(objectData.name, objectData.info);
-                    }
-                }
-            });
-            
-            // Remove labels for objects no longer detected
-            for (const [className, obj] of detectedObjects.entries()) {
-                if (!currentObjects.has(className)) {
-                    removeLabel(obj.sprite);
-                    detectedObjects.delete(className);
-                }
-            }
-            
-        } catch (error) {
-            console.error('Detection error:', error);
-        }
-        
-        requestAnimationFrame(detect);
-    }
-    
-    detect();
-}
-
-// Speech synthesis
-let speechQueue = [];
-let isSpeaking = false;
-
-function speakObject(name, info) {
     speechQueue.push({ name, info });
     processSpeechQueue();
 }
 
 function processSpeechQueue() {
-    if (isSpeaking || speechQueue.length === 0) return;
-    
+    if (!voiceEnabled || isSpeaking || speechQueue.length === 0) {
+        return;
+    }
+
     isSpeaking = true;
     const { name, info } = speechQueue.shift();
-    
     const utterance = new SpeechSynthesisUtterance(`${name}. ${info}`);
     utterance.rate = 0.9;
     utterance.pitch = 1;
-    utterance.volume = 0.8;
-    
+    utterance.volume = 0.85;
+
     utterance.onend = () => {
         isSpeaking = false;
-        setTimeout(processSpeechQueue, 500); // Small delay between speeches
+        setTimeout(processSpeechQueue, 400);
     };
-    
+
     utterance.onerror = () => {
         isSpeaking = false;
         processSpeechQueue();
     };
-    
+
     window.speechSynthesis.speak(utterance);
 }
 
-// UI Controls
 function setupControls() {
     const voiceToggle = document.getElementById('voice-toggle');
-    
+    if (!voiceToggle) {
+        return;
+    }
+
+    voiceToggle.classList.toggle('active', voiceEnabled);
+    const label = voiceToggle.querySelector('.label');
+    if (label) {
+        label.textContent = `Voice: ${voiceEnabled ? 'ON' : 'OFF'}`;
+    }
+
     voiceToggle.addEventListener('click', () => {
         voiceEnabled = !voiceEnabled;
-        const label = voiceToggle.querySelector('.label');
-        label.textContent = `Voice: ${voiceEnabled ? 'ON' : 'OFF'}`;
         voiceToggle.classList.toggle('active', voiceEnabled);
-        
+        if (label) {
+            label.textContent = `Voice: ${voiceEnabled ? 'ON' : 'OFF'}`;
+        }
+
         if (!voiceEnabled) {
             window.speechSynthesis.cancel();
-            speechQueue = [];
+            speechQueue.length = 0;
             isSpeaking = false;
+        } else {
+            processSpeechQueue();
         }
     });
 }
 
-// Update status
 function updateStatus(message, isError = false) {
     const statusEl = document.getElementById('status');
+    if (!statusEl) {
+        return;
+    }
+
     statusEl.textContent = message;
-    statusEl.className = isError ? 'error' : 'ready';
+    statusEl.classList.remove('ready', 'error');
+    statusEl.classList.add(isError ? 'error' : 'ready');
 }
 
-// Three.js render loop
 function animate() {
     requestAnimationFrame(animate);
-    
-    if (renderer && scene && camera) {
-        renderer.render(scene, camera);
+
+    if (arToolkitSource && arToolkitSource.ready) {
+        arToolkitContext.update(arToolkitSource.domElement);
     }
+
+    renderer.render(scene, camera);
 }
 
-// Start app when DOM is ready
+function createDetectionId() {
+    if (window.crypto && window.crypto.randomUUID) {
+        return window.crypto.randomUUID();
+    }
+    return `det-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function formatLabelName(name) {
+    return name
+        .replace(/_/g, ' ')
+        .replace(/\w\S*/g, txt => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
+}
+
+function setupWelcome() {
+    updateStatus('Awaiting launch...');
+    const startBtn = document.getElementById('start-btn');
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+    }
+
+    if (!startBtn) {
+        return;
+    }
+
+    startBtn.addEventListener('click', () => {
+        if (hasStarted) {
+            return;
+        }
+
+        hasStarted = true;
+        startBtn.disabled = true;
+        startBtn.textContent = 'Initializing...';
+
+        document.body.classList.add('experience-active');
+        const welcome = document.getElementById('welcome-screen');
+        if (welcome) {
+            welcome.classList.add('hidden');
+        }
+
+        if (overlay) {
+            overlay.classList.remove('hidden');
+        }
+
+        updateStatus('Booting sensors...');
+        init();
+    });
+}
+
+// Initialize welcome flow when DOM is ready
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', setupWelcome);
 } else {
-    init();
+    setupWelcome();
 }
 

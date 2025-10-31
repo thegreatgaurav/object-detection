@@ -3,11 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Object Visualizer</title>
+    <title>Neon AR Object Explorer</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Video element for camera feed -->
+    <!-- Welcome screen -->
+    <div id="welcome-screen">
+        <div class="welcome-glow"></div>
+        <div class="welcome-content">
+            <span class="badge">Immersive Web AR</span>
+            <h1 class="title">Neon AR Object Explorer</h1>
+            <p class="subtitle">
+                Step into a browser-based mixed reality lab. Scan your surroundings,
+                let the AI identify what it sees, and watch neon fact cards hover in space.
+            </p>
+            <div class="cta-row">
+                <button id="start-btn" class="primary-btn">Enter Experience</button>
+                <div class="secondary-copy">No installs required · Camera + audio access needed</div>
+            </div>
+        </div>
+        <div class="welcome-footer">
+            <span class="dot"></span>
+            <span>Powered by Three.js · AR.js · TensorFlow.js</span>
+        </div>
+    </div>
+    
+    <!-- Video element for camera feed (managed by AR.js) -->
     <video id="video" autoplay playsinline muted></video>
     
     <!-- Canvas for Three.js AR rendering -->
@@ -16,8 +37,8 @@
     <!-- UI Overlay -->
     <div id="ui-overlay">
         <div id="header">
-            <h1>AR Object Visualizer</h1>
-            <div id="status">Initializing...</div>
+            <h1>Neon AR Object Explorer</h1>
+            <div id="status">Awaiting launch...</div>
         </div>
         
         <div id="controls">
@@ -29,13 +50,14 @@
     </div>
     
     <!-- Loading overlay -->
-    <div id="loading-overlay">
+    <div id="loading-overlay" class="hidden">
         <div class="spinner"></div>
         <p>Loading AI Model...</p>
     </div>
     
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.2/three.js/build/ar-threex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
     <script src="script.js"></script>
