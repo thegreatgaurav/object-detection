@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Object Visualizer</title>
+    <title>Neon AR Object Explorer</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Video element for camera feed -->
+    <!-- Video element for camera feed (managed by AR.js) -->
     <video id="video" autoplay playsinline muted></video>
     
     <!-- Canvas for Three.js AR rendering -->
@@ -16,7 +16,7 @@
     <!-- UI Overlay -->
     <div id="ui-overlay">
         <div id="header">
-            <h1>AR Object Visualizer</h1>
+            <h1>Neon AR Object Explorer</h1>
             <div id="status">Initializing...</div>
         </div>
         
@@ -36,6 +36,7 @@
     
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.2/three.js/build/ar-threex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
     <script src="script.js"></script>

@@ -1,129 +1,66 @@
-# AR Object Visualizer
+# Neon AR Object Explorer
 
-A browser-based Augmented Reality application that detects real-world objects using AI and overlays 3D labels with names, fun facts, and confidence scores in real-time.
+A futuristic, browser-based augmented reality experience that detects real-world objects with TensorFlow.js and overlays glowing 3D fact cards directly in your camera view. Everything runs client-side with Three.js, AR.js, and the Web Speech API—no installs or backend required.
 
-## Features
+## Highlights
 
-- 🎥 **Real-time Object Detection** - Uses TensorFlow.js with COCO-SSD (MobileNet-based) model
-- 🎨 **3D AR Labels** - Beautiful Three.js overlays with smooth animations
-- 🔊 **Voice Feedback** - Text-to-speech announces detected objects and fun facts
-- 📱 **Responsive Design** - Works on desktop and mobile devices
-- ⚡ **Optimized Performance** - Throttled detection, frame resizing, and efficient rendering
-- 🎯 **Multiple Objects** - Detects and tracks multiple objects simultaneously
+- 🎥 **Immersive AR Pipeline** – AR.js powers the live camera feed while Three.js projects floating text planes in real time.
+- 🧠 **On-Device AI** – Uses the lightweight COCO-SSD (MobileNet) model through TensorFlow.js for fast multi-object detection.
+- 🪐 **Dynamic 3D Labels** – Each detection spawns a neon sprite with name, confidence, and a fun fact, including smooth ease-in/out transitions.
+- 🔊 **Talkative Guide** – Optional text-to-speech narration announces what was spotted and why it’s interesting.
+- 🚀 **Performance Ready** – Async model loading, throttled inference, frame downscaling, and simple temporal tracking keep things smooth on laptops and phones.
+- 🎛️ **User Controls** – Minimal UI with status indicator and tap-to-toggle voice feedback.
 
-## Setup Instructions
+## Quick Start
 
-1. **No Installation Required!** - This is a pure browser-based application.
+1. **Open `index.html`** in a modern browser (Chrome/Edge recommended). For mobile devices or browsers that block camera/voice on `file://`, serve it locally:
 
-2. **Open the Application**
-   - Simply open `index.html` in a modern web browser (Chrome, Firefox, Edge, Safari)
-   - Or use a local server for better performance:
-     ```bash
-     # Using Python 3
-     python -m http.server 8000
-     
-     # Using Node.js (if you have http-server installed)
-     npx http-server -p 8000
-     
-     # Using PHP
-     php -S localhost:8000
-     ```
-   - Then navigate to `http://localhost:8000` in your browser
+   ```bash
+   python -m http.server 8000
+   # or
+   npx http-server -p 8000
+   ```
 
-3. **Grant Camera Permissions**
-   - When prompted, allow the browser to access your camera
-   - On mobile devices, make sure to grant camera permissions
+   Then visit `http://localhost:8000`.
 
-4. **Wait for Model Loading**
-   - The AI model will download and load automatically (first time may take a few seconds)
-   - You'll see a loading spinner while the model initializes
+2. **Allow camera access** when prompted. On iOS/Android be sure to use HTTPS or a trusted local network.
 
-5. **Start Using**
-   - Point your camera at objects
-   - Labels will appear automatically when objects are detected
-   - Toggle voice feedback on/off using the button in the bottom-right corner
+3. **Wait for the spinner** while the MobileNet weights download (first load only).
 
-## Technical Details
+4. **Explore!** Move the camera around—labels will appear above detected objects. Toggle narration with the neon button in the lower-right corner.
 
-### Tech Stack
-- **HTML5** - Structure
-- **CSS3** - Futuristic black/neon styling
-- **JavaScript (ES6+)** - Application logic
-- **Three.js** - 3D graphics and AR rendering
-- **TensorFlow.js** - Machine learning inference
-- **COCO-SSD Model** - Object detection (MobileNet-based)
-- **Web Speech API** - Text-to-speech
+## How It Works
 
-### Architecture
-- **`index.html`** - Main HTML structure
-- **`style.css`** - Styling and UI design
-- **`script.js`** - Core application logic including:
-  - Camera initialization
-  - Object detection loop
-  - 3D label creation and animation
-  - Speech synthesis
-  - UI controls
+- **AR Foundation**: AR.js (`THREEx.ArToolkit`) opens the webcam stream, aligns the projection matrix, and keeps Three.js synced with the video backdrop.
+- **Detection Loop**: Every ~300 ms a downscaled frame is passed to `coco-ssd`. Bounding boxes are matched frame-to-frame via IoU so multiple instances stay stable.
+- **3D Overlay**: Detections map from 2D screen coordinates into camera space, placing sprite-based labels at a fixed depth with easing.
+- **Voice Engine**: A queue-based speech synthesizer narrates new objects (throttled so it won’t spam while an object stays in view).
 
-### Performance Optimizations
-- Detection throttling (300ms intervals)
-- Frame resizing for faster processing (50% scale)
-- Efficient Three.js rendering
-- Label pooling and reuse
-- Async model loading
+## Controls & UI
 
-### Supported Objects
-The app can detect 80+ object categories from the COCO dataset, including:
-- People, animals, vehicles
-- Furniture, electronics, food
-- Sports equipment, personal items
-- And many more!
+- `Voice: ON/OFF` – toggles Web Speech narration and clears any queued audio.
+- Status badge in the top bar shows loading, ready, or error states.
 
-Each object has associated fun facts and information stored in the application.
+## Tech Stack
 
-## Browser Compatibility
+- **HTML / CSS / JavaScript (ES2023)**
+- **Three.js 0.160** for rendering
+- **AR.js 3.4** for camera + projection integration
+- **TensorFlow.js 4.15** with **COCO-SSD (MobileNet)** for vision
+- **Web Speech API** for narration
 
-- ✅ Chrome/Edge (recommended)
-- ✅ Firefox
-- ✅ Safari (iOS 11+, macOS 10.13+)
-- ✅ Opera
+## Tips & Troubleshooting
 
-**Note**: Requires:
-- Modern browser with WebGL support
-- Camera access permissions
-- Web Speech API support (for voice features)
+- **Nothing shows up** – verify camera permission, adequate lighting, and that the page is served over HTTPS on mobile.
+- **Model load is slow** – first-time downloads can take a moment; subsequent loads use browser cache.
+- **Voice silent** – ensure the browser supports SpeechSynthesis (Safari/iOS require HTTPS) and that voice is toggled on.
+- **Performance dips** – close other heavy tabs or lower display resolution; detection already runs on half-resolution frames.
 
-## Troubleshooting
+## Project Structure
 
-### Camera not working
-- Make sure you've granted camera permissions
-- Check if another application is using the camera
-- Try refreshing the page
+- `index.html` – shell markup, AR + AI script imports, HUD elements
+- `style.css` – neon cyberpunk theme, responsive layout
+- `script.js` – AR initialization, detection loop, label rendering, speech queue, UI wiring
 
-### Model not loading
-- Check your internet connection (model downloads on first use)
-- Try clearing browser cache
-- Ensure you're using a modern browser
-
-### Voice not working
-- Check if your browser supports Web Speech API
-- Make sure voice is enabled (toggle button)
-- Some browsers require HTTPS for speech synthesis (use a local server)
-
-### Performance issues
-- Close other browser tabs
-- Reduce browser zoom level
-- Ensure adequate lighting for better detection
-
-## Development
-
-To modify the application:
-
-1. Edit `script.js` to change detection logic, labels, or behavior
-2. Edit `style.css` to modify the appearance
-3. Edit `OBJECT_DATABASE` in `script.js` to add/modify object information
-4. Adjust `DETECTION_THROTTLE` in `script.js` to change detection frequency
-
-## License
-
-This is a demonstration application. Feel free to use and modify as needed.
+Feel free to fork, remix, and build your own AR experiments on top of this foundation.
 
