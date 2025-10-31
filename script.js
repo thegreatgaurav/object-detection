@@ -532,7 +532,9 @@ function startDetectionLoop() {
 async function detectionLoop() {
     requestAnimationFrame(detectionLoop);
 
-    if (!model || !video || video.readyState < 2) {
+    const frameSource = arToolkitSource && arToolkitSource.domElement ? arToolkitSource.domElement : video;
+
+    if (!model || !frameSource || frameSource.readyState < 2) {
         return;
     }
 
@@ -541,9 +543,16 @@ async function detectionLoop() {
         return;
     }
 
+    const sourceWidth = frameSource.videoWidth || video.videoWidth;
+    const sourceHeight = frameSource.videoHeight || video.videoHeight;
+
+    if (!sourceWidth || !sourceHeight) {
+        return;
+    }
+
     const scale = SETTINGS.detectionScale;
-    const detectionWidth = Math.floor(video.videoWidth * scale);
-    const detectionHeight = Math.floor(video.videoHeight * scale);
+    const detectionWidth = Math.floor(sourceWidth * scale);
+    const detectionHeight = Math.floor(sourceHeight * scale);
 
     if (!detectionWidth || !detectionHeight) {
         return;
@@ -555,14 +564,14 @@ async function detectionLoop() {
     try {
         detectionCanvas.width = detectionWidth;
         detectionCanvas.height = detectionHeight;
-        detectionCtx.drawImage(video, 0, 0, detectionWidth, detectionHeight);
+        detectionCtx.drawImage(frameSource, 0, 0, detectionWidth, detectionHeight);
         const imageData = detectionCtx.getImageData(0, 0, detectionWidth, detectionHeight);
         const predictions = await model.detect(
             imageData,
             SETTINGS.maxBoxes,
             SETTINGS.minConfidence
         );
-        processPredictions(predictions, scale);
+        processPredictions(predictions, scale, sourceWidth, sourceHeight);
     } catch (error) {
         console.error('Detection error:', error);
     } finally {
@@ -570,7 +579,7 @@ async function detectionLoop() {
     }
 }
 
-function processPredictions(predictions, scale) {
+function processPredictions(predictions, scale, sourceWidth, sourceHeight) {
     const now = performance.now();
 
     for (const entry of detectedObjects.values()) {
@@ -591,7 +600,7 @@ function processPredictions(predictions, scale) {
 
         const centerX = bbox.x + bbox.width / 2;
         const labelY = Math.max(bbox.y - 60, 0);
-        const worldPos = screenToWorld(centerX, labelY, video.videoWidth, video.videoHeight);
+        const worldPos = screenToWorld(centerX, labelY, sourceWidth, sourceHeight);
 
         const matchId = findMatchingDetection(prediction.class, bbox);
         if (matchId) {
