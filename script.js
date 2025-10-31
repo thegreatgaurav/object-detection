@@ -557,7 +557,11 @@ async function detectionLoop() {
         detectionCanvas.height = detectionHeight;
         detectionCtx.drawImage(video, 0, 0, detectionWidth, detectionHeight);
         const imageData = detectionCtx.getImageData(0, 0, detectionWidth, detectionHeight);
-        const predictions = await model.detect(imageData, undefined, SETTINGS.maxBoxes);
+        const predictions = await model.detect(
+            imageData,
+            SETTINGS.maxBoxes,
+            SETTINGS.minConfidence
+        );
         processPredictions(predictions, scale);
     } catch (error) {
         console.error('Detection error:', error);
